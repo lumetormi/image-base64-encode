@@ -224,7 +224,7 @@ copyToClipboard(chunk)
     navigator.permissions.query({ name: "clipboard-write" }).then(permissionStatus => {
         if (permissionStatus.state === "granted" || permissionStatus.state === "prompt") {
             navigator.clipboard.writeText(text).then(() => {
-                alert("Copied to clipboard!");
+                
             }).catch(err => {
                 console.error("Clipboard copy failed:", err);
                 alert("Failed to copy. Check browser permissions.");

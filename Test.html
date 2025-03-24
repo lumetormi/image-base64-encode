@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Black & White Image Converter (Chunked Base64, Gzip)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <style>
+        #result {
+            margin-top: 20px;
+        }
+        .chunk-btn {
+            display: block;
+            margin: 5px 0;
+            padding: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .chunk-btn:hover {
+            background-color: #0056b3;
+        }
+        canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Black & White Image Converter (Chunked Base64, Editable)</h1>
+
+    <input type="file" id="imageInput" accept="image/*">
+    <button onclick="convertImage()">Convert to Black & White</button>
+
+    <div id="result">
+        <p>Paste or Edit Base64 Chunks Below:</p>
+        <textarea id="base64Text" rows="8" cols="80"></textarea>
+        <br>
+        <button onclick="decodeBase64Image()">Decode Image</button>
+        <div id="chunkButtons"></div>
+    </div>
+    
+    <canvas id="canvas"></canvas>
+
+    <script>
+        function convertImage() {
+            const fileInput = document.getElementById('imageInput');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // Resize to fit within 20000 bytes
+                    const maxPixels = 20000 * 8; // 160000 pixels
+                    const aspectRatio = img.width / img.height;
+                    let width = Math.floor(Math.sqrt(maxPixels * aspectRatio));
+                    let height = Math.floor(maxPixels / width);
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Get image data
+                    const imageData = ctx.getImageData(0, 0, width, height);
+                    const data = imageData.data;
+                    const byteArray = new Uint8Array(Math.ceil((width * height) / 8));
+
+                    // Convert to black & white and pack 8 pixels into 1 byte
+                    let byteIndex = 0;
+                    for (let i = 0; i < data.length; i += 32) {
+                        let byte = 0;
+                        for (let j = 0; j < 8; j++) {
+                            let pixelIndex = i + j * 4;
+                            if (pixelIndex + 3 >= data.length) break;
+
+                            let gray = (data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3;
+                            let binValue = gray < 127 ? 0 : 1;
+                            byte |= binValue << (7 - j);
+                        }
+                        byteArray[byteIndex++] = byte;
+                    }
+
+                    // Gzip compress the byte array
+                    let compressedData = pako.deflate(byteArray);
+                    let compressedBase64 = btoa(String.fromCharCode.apply(null, compressedData));
+
+                    // Split Base64 string into 197-character chunks
+                    let chunks = [];
+                    for (let i = 0; i < compressedBase64.length; i += 197) {
+                        let chunkIndex = String(i / 197).padStart(2, '0'); // 2-digit index
+                        let chunk = chunkIndex + "|" + compressedBase64.substring(i, i + 197);
+                        chunks.push(chunk);
+                    }
+
+                    // Insert first chunk with dimensions and total chunk count
+                    let totalChunks = chunks.length;
+                    chunks.unshift(`DIM|${width}x${height}|${totalChunks}`);
+
+                    // Display chunks in editable textarea
+                    document.getElementById('base64Text').value = chunks.join("\n");
+
+                    // Generate chunk buttons
+                    const chunkButtonsDiv = document.getElementById('chunkButtons');
+                    chunkButtonsDiv.innerHTML = ""; // Clear previous buttons
+                    chunks.forEach((chunk, index) => {
+                        let btn = document.createElement("button");
+                        btn.textContent = index === 0 ? "DIM" : `Chunk ${String(index).padStart(2, '0')}`;
+                        btn.className = "chunk-btn";
+                        btn.onclick = () => copyToClipboard(chunk);
+                        chunkButtonsDiv.appendChild(btn);
+                    });
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function decodeBase64Image() {
+            const base64TextArea = document.getElementById('base64Text');
+            let chunkedBase64 = base64TextArea.value.trim();
+
+            if (!chunkedBase64) {
+                alert("Please enter or paste a valid encoded Base64 string.");
+                return;
+            }
+
+            let chunks = chunkedBase64.split("\n");
+
+            // Extract image dimensions and total chunk count from first chunk
+            let firstChunk = chunks.shift();
+            if (!firstChunk.startsWith("DIM|")) {
+                alert("Invalid format: Missing dimensions.");
+                return;
+            }
+
+            let parts = firstChunk.substring(4).split("|");
+            if (parts.length !== 2) {
+                alert("Invalid format: Incorrect header structure.");
+                return;
+            }
+
+            let [width, height] = parts[0].split("x").map(Number);
+            let totalChunks = parseInt(parts[1]);
+
+            if (isNaN(width) || isNaN(height) || isNaN(totalChunks)) {
+                alert("Invalid dimensions or chunk count in encoded data.");
+                return;
+            }
+
+            // Ensure all chunks are present
+            if (chunks.length !== totalChunks) {
+                alert(`Missing chunks! Expected ${totalChunks}, but found ${chunks.length}.`);
+                return;
+            }
+
+            // Sort remaining chunks by index and remove headers
+            chunks.sort();
+            let base64String = chunks.map(chunk => chunk.substring(3)).join("");
+
+            try {
+                // Base64 decode
+                let compressedData = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
+
+                // Gzip decompress
+                let decompressedData = pako.inflate(compressedData);
+
+                // Convert decompressed data back to Uint8Array
+                let byteArray = new Uint8Array(decompressedData);
+
+                // Prepare canvas
+                const canvas = document.getElementById('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = width;
+                canvas.height = height;
+
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+
+                let byteIndex = 0;
+                for (let i = 0; i < width * height; i += 8) {
+                    let byte = byteArray[byteIndex++];
+                    for (let j = 0; j < 8; j++) {
+                        const binValue = (byte >> (7 - j)) & 1;
+                        const colorValue = binValue ? 255 : 0;
+                        const pixelIndex = (i + j) * 4;
+                        if (pixelIndex < data.length) {
+                            data[pixelIndex] = colorValue;
+                            data[pixelIndex + 1] = colorValue;
+                            data[pixelIndex + 2] = colorValue;
+                            data[pixelIndex + 3] = 255;
+                        }
+                    }
+                }
+
+                // Draw decoded image
+                ctx.putImageData(imageData, 0, 0);
+                document.getElementById('result').innerHTML += `<p>Decoded Image:</p><img src="${canvas.toDataURL()}" alt="Decoded Image">`;
+            } catch (error) {
+                alert("Error decoding image. Please check the input format.");
+                console.error(error);
+            }
+        }
+
+        function copyToClipboard(text) {
+    navigator.permissions.query({ name: "clipboard-write" }).then(permissionStatus => {
+        if (permissionStatus.state === "granted" || permissionStatus.state === "prompt") {
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Copied to clipboard!");
+            }).catch(err => {
+                console.error("Clipboard copy failed:", err);
+                alert("Failed to copy. Check browser permissions.");
+            });
+        } else {
+            alert("Clipboard access denied by the browser.");
+        }
+    }).catch(err => {
+        console.error("Clipboard permission request failed:", err);
+        alert("Error requesting clipboard access.");
+    });
+}
+
+    </script>
+</body>
+</html>

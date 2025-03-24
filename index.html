@@ -40,6 +40,10 @@
 <body>
     <h1>Black & White Image Converter (Chunked Base64, Editable)</h1>
 
+<label for="maxBytes">Max Bytes (in multiples of 8): </label>
+<input type="number" id="maxBytes" value="20000" min="1">
+
+
     <input type="file" id="imageInput" accept="image/*">
     <button onclick="convertImage()">Convert to Black & White</button>
 
@@ -67,7 +71,7 @@
                     const ctx = canvas.getContext('2d');
 
                     // Resize to fit within 20000 bytes
-                    const maxPixels = 20000 * 8; // 160000 pixels
+                    const maxPixels = (parseInt(document.getElementById('maxBytes').value) || 20000) * 8; // 160000 pixels
                     const aspectRatio = img.width / img.height;
                     let width = Math.floor(Math.sqrt(maxPixels * aspectRatio));
                     let height = Math.floor(maxPixels / width);
@@ -224,7 +228,7 @@ copyToClipboard(chunk)
     navigator.permissions.query({ name: "clipboard-write" }).then(permissionStatus => {
         if (permissionStatus.state === "granted" || permissionStatus.state === "prompt") {
             navigator.clipboard.writeText(text).then(() => {
-                
+                alert("Copied to clipboard!");
             }).catch(err => {
                 console.error("Clipboard copy failed:", err);
                 alert("Failed to copy. Check browser permissions.");

@@ -85,6 +85,20 @@
                     const data = imageData.data;
                     const byteArray = new Uint8Array(Math.ceil((width * height) / 8));
 
+
+let totalBrightness = 0;
+let pixelCount = 0;
+for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const brightness = (r + g + b) / 3;
+    totalBrightness += brightness;
+    pixelCount++;
+}
+const averageBrightness = totalBrightness / pixelCount;
+
+
                     // Convert to black & white and pack 8 pixels into 1 byte
                     let byteIndex = 0;
                     for (let i = 0; i < data.length; i += 32) {
@@ -94,7 +108,7 @@
                             if (pixelIndex + 3 >= data.length) break;
 
                             let gray = (data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3;
-                            let binValue = gray < 127 ? 0 : 1;
+                            let binValue = gray < averageBrightness ? 0 : 1;
                             byte |= binValue << (7 - j);
                         }
                         byteArray[byteIndex++] = byte;
